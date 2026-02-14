@@ -14,10 +14,21 @@ import {
     SEASONS
 } from './structures.js';
 
+import {
+    BUILDING_TYPES,
+    createBuilding,
+    getBuildingUpgradeCost,
+    canBuildOrUpgrade,
+    calculateCityBuildingEffects
+} from './buildings.js';
+
 class GameStateManager {
     constructor() {
         this.state = null;
         this.listeners = [];
+        this.lastUpdateTime = Date.now();
+        this.gameSpeed = 1; // 1=正常, 2=2倍速, 4=4倍速, 0=暂停
+        this.daysPassed = 0;
     }
 
     /**
@@ -78,6 +89,7 @@ class GameStateManager {
         }
 
         console.log('游戏状态初始化完成', this.state);
+        this.lastUpdateTime = Date.now();
         this.notifyListeners('initialized');
     }
 
@@ -117,45 +129,99 @@ class GameStateManager {
     }
 
     /**
-     * 下一回合
+     * 更新游戏时间（实时系统）
+     * @param {number} deltaTime - 经过的实际时间（毫秒）
      */
-    nextTurn() {
-        this.state.currentTurn++;
+    update(deltaTime) {
+        if (this.gameSpeed === 0) return; // 暂停状态
         
-        // 推进季节
-        const seasonIndex = SEASONS.indexOf(this.state.currentSeason);
-        const nextSeasonIndex = (seasonIndex + 1) % SEASONS.length;
-        this.state.currentSeason = SEASONS[nextSeasonIndex];
+        // 实际游戏时间流逝（1秒现实时间 = 1天游戏时间 * 速度倍数）
+        const gameDays = (deltaTime / 1000) * this.gameSpeed;
+        this.daysPassed += gameDays;
         
-        // 如果回到春季，年份+1
-        if (nextSeasonIndex === 0) {
-            this.state.currentYear++;
+        // 每过一天更新一次
+        if (this.daysPassed >= 1) {
+            const daysToAdvance = Math.floor(this.daysPassed);
+            this.daysPassed -= daysToAdvance;
+            
+            this.advanceDays(daysToAdvance);
         }
-
-        // 更新资源
-        this.updateResources();
-
-        console.log(`回合 ${this.state.currentTurn}: ${this.state.currentYear}年 ${this.state.currentSeason}`);
-        this.notifyListeners('turnChanged');
+    }
+    
+    /**
+     * 推进指定天数
+     */
+    advanceDays(days) {
+        for (let i = 0; i < days; i++) {
+            this.state.currentTurn++;
+            
+            // 每30天（约一个月）推进一个季节
+            if (this.state.currentTurn % 30 === 0) {
+                const seasonIndex = SEASONS.indexOf(this.state.currentSeason);
+                const nextSeasonIndex = (seasonIndex + 1) % SEASONS.length;
+                this.state.currentSeason = SEASONS[nextSeasonIndex];
+                
+                // 如果回到春季，年份+1
+                if (nextSeasonIndex === 0) {
+                    this.state.currentYear++;
+                }
+            }
+            
+            // 更新建筑建造进度
+            this.updateConstructions();
+            
+            // 每天更新资源（按天计算）
+            this.updateDailyResources();
+        }
+        
+        this.notifyListeners('timeChanged');
+    }
+    
+    /**
+     * 设置游戏速度
+     */
+    setGameSpeed(speed) {
+        this.gameSpeed = speed;
+        console.log(`游戏速度: ${speed === 0 ? '暂停' : speed + 'x'}`);
+        this.notifyListeners('speedChanged');
+    }
+    
+    /**
+     * 获取游戏速度
+     */
+    getGameSpeed() {
+        return this.gameSpeed;
     }
 
     /**
-     * 更新资源
+     * 每天更新资源
      */
-    updateResources() {
+    updateDailyResources() {
         for (const factionId in this.state.factions) {
             const faction = this.state.factions[factionId];
             
-            // 计算城池产出
+            // 计算城池产出（每回合产出/30天）+ 建筑加成
             for (const cityId of faction.cities) {
                 const city = this.state.cities[cityId];
-                faction.resources.gold += city.production.goldPerTurn;
-                faction.resources.food += city.production.foodPerTurn;
-                faction.resources.wood += city.production.woodPerTurn;
+                
+                // 基础产出
+                let goldIncome = city.production.goldPerTurn / 30;
+                let foodIncome = city.production.foodPerTurn / 30;
+                let woodIncome = city.production.woodPerTurn / 30;
+                
+                // 建筑加成
+                const buildingEffects = calculateCityBuildingEffects(city);
+                goldIncome += buildingEffects.goldPerTurn / 30;
+                foodIncome += buildingEffects.foodPerTurn / 30;
+                woodIncome += buildingEffects.woodPerTurn / 30;
+                
+                faction.resources.gold += goldIncome;
+                faction.resources.food += foodIncome;
+                faction.resources.wood += woodIncome;
             }
 
-            // 扣除维护费用
-            const maintenanceCost = faction.generals.length * 10;
+            // 扣除维护费用（每回合费用/30天）
+            const maintenanceCost = faction.generals.length * 10 / 30;
             faction.resources.gold -= maintenanceCost;
         }
     }
@@ -177,13 +243,131 @@ class GameStateManager {
     addListener(callback) {
         this.listeners.push(callback);
     }
+    
+    /**
+     * 更新建筑建造进度
+     */
+    updateConstructions() {
+        for (const cityId in this.state.cities) {
+            const city = this.state.cities[cityId];
+            
+            for (const building of city.buildings) {
+                if (building.underConstruction) {
+                    building.constructionProgress++;
+                    
+                    const config = BUILDING_TYPES[building.type];
+                    const cost = getBuildingUpgradeCost(building.type, building.level - 1);
+                    
+                    if (building.constructionProgress >= cost.time) {
+                        building.underConstruction = false;
+                        building.constructionProgress = 0;
+                        console.log(`${city.name} 的 ${building.name} 建造完成！`);
+                        this.notifyListeners('buildingCompleted', { cityId, building });
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 建造或升级建筑
+     */
+    buildOrUpgradeBuilding(cityId, buildingType) {
+        const city = this.getCity(cityId);
+        if (!city) return { success: false, message: '城池不存在' };
+        
+        // 检查城池所有权
+        const playerFaction = this.getPlayerFaction();
+        if (city.owner !== playerFaction.id) {
+            return { success: false, message: '这不是你的城池' };
+        }
+        
+        // 检查是否可以建造
+        const check = canBuildOrUpgrade(city, buildingType, playerFaction.resources);
+        if (!check.canBuild) {
+            return { success: false, message: check.reason };
+        }
+        
+        // 扣除资源
+        playerFaction.resources.gold -= check.cost.gold;
+        playerFaction.resources.wood -= check.cost.wood;
+        playerFaction.resources.food -= check.cost.food;
+        
+        // 查找现有建筑
+        let building = city.buildings.find(b => b.type === buildingType);
+        
+        if (building) {
+            // 升级
+            building.level++;
+            building.underConstruction = true;
+            building.constructionProgress = 0;
+            building.constructionStartTime = this.state.currentTurn;
+        } else {
+            // 新建
+            building = createBuilding(buildingType, 1);
+            building.underConstruction = true;
+            building.constructionStartTime = this.state.currentTurn;
+            city.buildings.push(building);
+        }
+        
+        console.log(`开始建造 ${city.name} 的 ${building.name} Lv.${building.level}`);
+        this.notifyListeners('buildingStarted', { cityId, building });
+        
+        return { 
+            success: true, 
+            message: `开始${building.level > 1 ? '升级' : '建造'} ${building.name}`,
+            building,
+            buildTime: check.cost.time
+        };
+    }
+    
+    /**
+     * 任命武将为太守
+     */
+    appointGovernor(cityId, generalId) {
+        const city = this.getCity(cityId);
+        const general = this.getGeneral(generalId);
+        
+        if (!city || !general) {
+            return { success: false, message: '城池或武将不存在' };
+        }
+        
+        // 检查所有权
+        const playerFaction = this.getPlayerFaction();
+        if (city.owner !== playerFaction.id) {
+            return { success: false, message: '这不是你的城池' };
+        }
+        
+        if (general.faction !== playerFaction.id) {
+            return { success: false, message: '这不是你的武将' };
+        }
+        
+        // 移除旧太守
+        if (city.governor) {
+            const oldGovernor = this.getGeneral(city.governor);
+            if (oldGovernor) {
+                oldGovernor.position = 'none';
+                oldGovernor.location = null;
+            }
+        }
+        
+        // 任命新太守
+        city.governor = generalId;
+        general.position = 'governor';
+        general.location = cityId;
+        
+        console.log(`任命 ${general.name} 为 ${city.name} 太守`);
+        this.notifyListeners('governorAppointed', { cityId, generalId });
+        
+        return { success: true, message: `${general.name} 已被任命为 ${city.name} 太守` };
+    }
 
     /**
      * 通知所有监听器
      */
-    notifyListeners(event) {
+    notifyListeners(event, data = null) {
         for (const listener of this.listeners) {
-            listener(event, this.state);
+            listener(event, this.state, data);
         }
     }
 }

@@ -16,7 +16,8 @@ export function createCity(id, name, x, y, owner = null) {
         garrison: 1000,
         walls: 5,
         owner,
-        buildings: [],
+        governor: null, // 太守
+        buildings: [], // 建筑列表
         development: 3,
         terrainType: "plain",
         resources: {

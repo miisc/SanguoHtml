@@ -12,6 +12,8 @@ class Game {
         this.gameState = gameState;
         this.mapRenderer = null;
         this.uiManager = null;
+        this.isRunning = false;
+        this.lastFrameTime = Date.now();
     }
 
     /**
@@ -40,6 +42,9 @@ class Game {
             // 首次渲染
             this.mapRenderer.render();
             
+            // 启动游戏循环
+            this.start();
+            
             // 隐藏加载界面
             setTimeout(() => {
                 document.getElementById('loading').classList.add('hidden');
@@ -67,6 +72,39 @@ class Game {
         document.getElementById('reset-view').addEventListener('click', () => {
             this.mapRenderer.resetView();
         });
+    }
+    
+    /**
+     * 启动游戏循环
+     */
+    start() {
+        this.isRunning = true;
+        this.lastFrameTime = Date.now();
+        this.gameLoop();
+    }
+    
+    /**
+     * 停止游戏循环
+     */
+    stop() {
+        this.isRunning = false;
+    }
+    
+    /**
+     * 游戏主循环
+     */
+    gameLoop() {
+        if (!this.isRunning) return;
+        
+        const currentTime = Date.now();
+        const deltaTime = currentTime - this.lastFrameTime;
+        this.lastFrameTime = currentTime;
+        
+        // 更新游戏状态
+        this.gameState.update(deltaTime);
+        
+        // 请求下一帧
+        requestAnimationFrame(() => this.gameLoop());
     }
 }
 

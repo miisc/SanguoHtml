@@ -3,6 +3,8 @@
  * 负责管理所有UI交互和更新
  */
 
+import { BUILDING_TYPES, getBuildingUpgradeCost, canBuildOrUpgrade } from '../data/buildings.js';
+
 export class UIManager {
     constructor(gameState) {
         this.gameState = gameState;
@@ -52,8 +54,20 @@ export class UIManager {
             this.loadGame();
         });
 
-        document.getElementById('btn-next-turn').addEventListener('click', () => {
-            this.nextTurn();
+        document.getElementById('btn-pause').addEventListener('click', () => {
+            this.togglePause();
+        });
+        
+        document.getElementById('btn-speed-1x').addEventListener('click', () => {
+            this.setSpeed(1);
+        });
+        
+        document.getElementById('btn-speed-2x').addEventListener('click', () => {
+            this.setSpeed(2);
+        });
+        
+        document.getElementById('btn-speed-4x').addEventListener('click', () => {
+            this.setSpeed(4);
         });
 
         // 监听城池选中事件
@@ -66,9 +80,16 @@ export class UIManager {
         });
 
         // 监听游戏状态变化
-        this.gameState.addListener((event) => {
-            if (event === 'turnChanged') {
+        this.gameState.addListener((event, state, data) => {
+            if (event === 'timeChanged' || event === 'speedChanged') {
                 this.updateHeader();
+                this.updateSpeedButtons();
+            }
+            
+            // 建筑完成提示
+            if (event === 'buildingCompleted' && data) {
+                const city = this.gameState.getCity(data.cityId);
+                this.showMessage('建筑完成', `${city.name} 的 ${data.building.name} Lv.${data.building.level} 已建造完成！`);
             }
         });
     }
@@ -91,6 +112,31 @@ export class UIManager {
         
         document.getElementById('food').textContent = 
             Math.floor(playerFaction.resources.food);
+        
+        document.getElementById('wood').textContent = 
+            Math.floor(playerFaction.resources.wood);
+    }
+    
+    /**
+     * 更新速度按钮状态
+     */
+    updateSpeedButtons() {
+        const currentSpeed = this.gameState.getGameSpeed();
+        const pauseBtn = document.getElementById('btn-pause');
+        
+        // 更新暂停按钮
+        if (currentSpeed === 0) {
+            pauseBtn.textContent = '▶ 继续';
+            pauseBtn.classList.add('active');
+        } else {
+            pauseBtn.textContent = '⏸ 暂停';
+            pauseBtn.classList.remove('active');
+        }
+        
+        // 更新速度按钮
+        document.getElementById('btn-speed-1x').classList.toggle('active', currentSpeed === 1);
+        document.getElementById('btn-speed-2x').classList.toggle('active', currentSpeed === 2);
+        document.getElementById('btn-speed-4x').classList.toggle('active', currentSpeed === 4);
     }
 
     /**
@@ -121,6 +167,15 @@ export class UIManager {
             ownerName = state.factions[city.owner].name;
         }
         
+        // 太守信息
+        let governorInfo = '无';
+        if (city.governor) {
+            const governor = state.generals[city.governor];
+            if (governor) {
+                governorInfo = `${governor.name}(政治:${governor.attributes.politics})`;
+            }
+        }
+        
         const content = `
             <div class="info-item">
                 <span class="info-label">城池名称:</span>
@@ -129,6 +184,10 @@ export class UIManager {
             <div class="info-item">
                 <span class="info-label">所属势力:</span>
                 <span class="info-value">${ownerName}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">太守:</span>
+                <span class="info-value">${governorInfo}</span>
             </div>
             <div class="info-item">
                 <span class="info-label">人口:</span>
@@ -154,6 +213,10 @@ export class UIManager {
                     🌲 ${city.production.woodPerTurn}
                 </span>
             </div>
+            <hr style="border-color: #8b7355; margin: 10px 0;">
+            <h4 style="color: #d4af37; margin-bottom: 10px;">建筑</h4>
+            ${this.renderCityBuildings(city)}
+            ${city.owner === this.gameState.getPlayerFaction().id ? this.renderBuildingOptions(city) : ''}
         `;
         
         this.showPanel(`城池：${city.name}`, content);
@@ -184,6 +247,100 @@ export class UIManager {
         
         this.showPanel('城池列表', content);
     }
+    
+    /**
+     * 渲染城池建筑列表
+     */
+    renderCityBuildings(city) {
+        if (city.buildings.length === 0) {
+            return '<p style="color: #999;">暂无建筑</p>';
+        }
+        
+        let html = '';
+        for (const building of city.buildings) {
+            const status = building.underConstruction 
+                ? `<span style="color: #f39c12;">(建造中: ${building.constructionProgress}天)</span>`
+                : '';
+            
+            html += `
+                <div class="info-item">
+                    <strong>${BUILDING_TYPES[building.type].icon} ${building.name} Lv.${building.level}</strong> ${status}<br>
+                    <small>${BUILDING_TYPES[building.type].description}</small>
+                </div>
+            `;
+        }
+        
+        return html;
+    }
+    
+    /**
+     * 渲染建造选项
+     */
+    renderBuildingOptions(city) {
+        let html = '<hr style="border-color: #8b7355; margin: 10px 0;"><h4 style="color: #d4af37; margin-bottom: 10px;">建造/升级</h4>';
+        
+        const playerFaction = this.gameState.getPlayerFaction();
+        
+        for (const [buildingType, config] of Object.entries(BUILDING_TYPES)) {
+            const existingBuilding = city.buildings.find(b => b.type === buildingType);
+            const currentLevel = existingBuilding ? existingBuilding.level : 0;
+            const check = canBuildOrUpgrade(city, buildingType, playerFaction.resources);
+            const cost = check.cost || getBuildingUpgradeCost(buildingType, currentLevel);
+            
+            const isMaxLevel = currentLevel >= config.maxLevel;
+            const isUnderConstruction = existingBuilding && existingBuilding.underConstruction;
+            const canBuild = check.canBuild && !isUnderConstruction;
+            
+            const buttonDisabled = !canBuild || isMaxLevel ? 'disabled' : '';
+            const buttonText = isMaxLevel ? '已满级' : (currentLevel > 0 ? `升级到Lv.${currentLevel + 1}` : '建造');
+            
+            html += `
+                <div class="building-option" style="margin-bottom: 10px; padding: 10px; background-color: rgba(58, 47, 31, 0.5); border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                        <strong>${config.icon} ${config.name} ${currentLevel > 0 ? `Lv.${currentLevel}` : ''}</strong>
+                        <button class="build-btn" data-city="${city.id}" data-building="${buildingType}" ${buttonDisabled}
+                            style="padding: 5px 10px; font-size: 12px;">
+                            ${buttonText}
+                        </button>
+                    </div>
+                    <small>${config.description}</small><br>
+                    <small style="color: #d4af37;">
+                        💰${cost.gold} 🌲${cost.wood} 🌾${cost.food} ⏱${cost.time}天
+                    </small>
+                    ${!check.canBuild && !isMaxLevel && !isUnderConstruction ? `<br><small style="color: #e74c3c;">${check.reason}</small>` : ''}
+                </div>
+            `;
+        }
+        
+        // 绑定建造按钮事件
+        setTimeout(() => {
+            document.querySelectorAll('.build-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const cityId = e.target.dataset.city;
+                    const buildingType = e.target.dataset.building;
+                    this.buildBuilding(cityId, buildingType);
+                });
+            });
+        }, 100);
+        
+        return html;
+    }
+    
+    /**
+     * 建造建筑
+     */
+    buildBuilding(cityId, buildingType) {
+        const result = this.gameState.buildOrUpgradeBuilding(cityId, buildingType);
+        
+        if (result.success) {
+            this.showMessage('建造成功', `${result.message}，预计${result.buildTime}天完成`);
+            this.updateHeader();
+            // 刷新城池信息
+            setTimeout(() => this.showCityInfo(cityId), 1000);
+        } else {
+            this.showMessage('建造失败', result.message);
+        }
+    }
 
     /**
      * 显示武将列表
@@ -196,13 +353,23 @@ export class UIManager {
         
         for (const generalId of playerFaction.generals) {
             const general = state.generals[generalId];
+            let positionText = '待命';
+            if (general.position === 'ruler') {
+                positionText = '君主';
+            } else if (general.position === 'governor' && general.location) {
+                const city = state.cities[general.location];
+                positionText = `${city.name}太守`;
+            }
+            
             content += `
-                <div class="info-item">
+                <div class="info-item" style="cursor: pointer;" onclick="window.uiManager.showGeneralDetail('${generalId}')">
                     <strong>${general.name}</strong> (${general.courtesyName})<br>
                     <small>
+                        职位: ${positionText}<br>
                         武力: ${general.attributes.force} | 
                         智力: ${general.attributes.intelligence} | 
                         统率: ${general.attributes.command}<br>
+                        政治: ${general.attributes.politics} |
                         魅力: ${general.attributes.charm} | 
                         忠诚: ${general.loyalty}
                     </small>
@@ -211,6 +378,119 @@ export class UIManager {
         }
         
         this.showPanel('武将列表', content);
+        
+        // 暴露到全局以供点击调用
+        window.uiManager = this;
+    }
+    
+    /**
+     * 显示武将详情
+     */
+    showGeneralDetail(generalId) {
+        const general = this.gameState.getGeneral(generalId);
+        const playerFaction = this.gameState.getPlayerFaction();
+        const state = this.gameState.getState();
+        
+        let positionText = '待命';
+        let locationText = '-';
+        
+        if (general.position === 'ruler') {
+            positionText = '君主';
+        } else if (general.position === 'governor' && general.location) {
+            const city = state.cities[general.location];
+            positionText = '太守';
+            locationText = city.name;
+        }
+        
+        let content = `
+            <div class="info-item">
+                <span class="info-label">姓名:</span>
+                <span class="info-value">${general.name} (${general.courtesyName})</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">职位:</span>
+                <span class="info-value">${positionText}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">地点:</span>
+                <span class="info-value">${locationText}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">忠诚:</span>
+                <span class="info-value">${general.loyalty}</span>
+            </div>
+            <hr style="border-color: #8b7355; margin: 10px 0;">
+            <h4 style="color: #d4af37; margin-bottom: 10px;">属性</h4>
+            <div class="info-item">
+                <span class="info-label">武力:</span><span class="info-value">${general.attributes.force}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">智力:</span><span class="info-value">${general.attributes.intelligence}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">统率:</span><span class="info-value">${general.attributes.command}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">政治:</span><span class="info-value">${general.attributes.politics}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">魅力:</span><span class="info-value">${general.attributes.charm}</span>
+            </div>
+        `;
+        
+        // 如果不是君主，可以任命为太守
+        if (general.position !== 'ruler') {
+            content += '<hr style="border-color: #8b7355; margin: 10px 0;"><h4 style="color: #d4af37; margin-bottom: 10px;">任命</h4>';
+            
+            // 显示可任命的城池
+            for (const cityId of playerFaction.cities) {
+                const city = state.cities[cityId];
+                const currentGovernor = city.governor ? state.generals[city.governor] : null;
+                const isCurrentLocation = general.location === cityId;
+                
+                content += `
+                    <div class="info-item" style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${city.name}</strong><br>
+                            <small>太守: ${currentGovernor ? currentGovernor.name : '无'}</small>
+                        </div>
+                        <button class="appoint-btn" data-city="${cityId}" data-general="${generalId}" 
+                            ${isCurrentLocation ? 'disabled' : ''}
+                            style="padding: 5px 10px; font-size: 12px;">
+                            ${isCurrentLocation ? '已任职' : '任命'}
+                        </button>
+                    </div>
+                `;
+            }
+            
+            // 绑定任命按钮事件
+            setTimeout(() => {
+                document.querySelectorAll('.appoint-btn').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const cityId = e.target.dataset.city;
+                        const genId = e.target.dataset.general;
+                        this.appointGovernor(cityId, genId);
+                    });
+                });
+            }, 100);
+        }
+        
+        this.showPanel(`武将: ${general.name}`, content);
+    }
+    
+    /**
+     * 任命太守
+     */
+    appointGovernor(cityId, generalId) {
+        const result = this.gameState.appointGovernor(cityId, generalId);
+        
+        if (result.success) {
+            this.showMessage('任命成功', result.message);
+            // 刷新武将详情
+            setTimeout(() => this.showGeneralDetail(generalId), 1000);
+        } else {
+            this.showMessage('任命失败', result.message);
+        }
     }
 
     /**
@@ -221,16 +501,24 @@ export class UIManager {
     }
 
     /**
-     * 下一回合
+     * 切换暂停/继续
      */
-    nextTurn() {
-        this.showLoading();
-        
-        setTimeout(() => {
-            this.gameState.nextTurn();
-            this.hideLoading();
-            this.showMessage('回合结束', `已进入第 ${this.gameState.getState().currentTurn} 回合`);
-        }, 500);
+    togglePause() {
+        const currentSpeed = this.gameState.getGameSpeed();
+        if (currentSpeed === 0) {
+            this.gameState.setGameSpeed(1); // 恢复为正常速度
+        } else {
+            this.gameState.setGameSpeed(0); // 暂停
+        }
+        this.updateSpeedButtons();
+    }
+    
+    /**
+     * 设置游戏速度
+     */
+    setSpeed(speed) {
+        this.gameState.setGameSpeed(speed);
+        this.updateSpeedButtons();
     }
 
     /**
