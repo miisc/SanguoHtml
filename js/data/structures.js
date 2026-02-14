@@ -21,9 +21,9 @@ export function createCity(id, name, x, y, owner = null) {
         development: 3,
         terrainType: "plain",
         resources: {
-            gold: 100,
-            food: 200,
-            wood: 50
+            gold: 500, // 原100，提升初始金钱
+            food: 800, // 原200，提升初始粮食
+            wood: 300  // 原50，提升初始木材
         },
         production: {
             goldPerTurn: 50,
@@ -89,9 +89,9 @@ export function createFaction(id, name, color, ruler) {
         cities: [],
         generals: [ruler],
         resources: {
-            gold: 2000,
-            food: 1500,
-            wood: 500
+            gold: 5000, // 原2000，提升初始金钱
+            food: 4000, // 原1500，提升初始粮食
+            wood: 1500  // 原500，提升初始木材
         },
         relations: {},
         isPlayer: false

@@ -382,3 +382,70 @@ button:disabled {
     border-left: 3px solid #d4af37;
     margin: 10px 0;
 }
+
+/* 朝会系统样式 */
+.court-meeting {
+    padding: 10px;
+}
+
+.court-event-item {
+    animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.court-option-btn {
+    transition: all 0.3s ease;
+}
+
+.court-option-btn:hover {
+    background: rgba(212, 175, 55, 0.4) !important;
+    border-color: #f4d47f !important;
+    transform: translateX(5px);
+}
+
+.court-option-btn:active {
+    transform: translateX(5px) scale(0.98);
+}
+
+/* 朝会按钮特殊样式 */
+#btn-court {
+    background: linear-gradient(135deg, #8b6914 0%, #d4af37 100%);
+    border-color: #d4af37;
+    color: #fff;
+    font-weight: bold;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 2px 8px rgba(212, 175, 55, 0.3);
+}
+
+#btn-court:hover {
+    background: linear-gradient(135deg, #a07c1a 0%, #f4d47f 100%);
+    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.5);
+}
+
+.action-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 12px;
+    background: linear-gradient(to bottom, #8b6914, #6a5214);
+    border: 2px solid #d4af37;
+    color: white;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.action-btn:hover {
+    background: linear-gradient(to bottom, #a07c1a, #8b6914);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(212, 175, 55, 0.4);
+}

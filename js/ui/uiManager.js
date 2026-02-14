@@ -11,6 +11,7 @@ export class UIManager {
         this.infoPanel = document.getElementById('info-panel');
         this.panelTitle = document.getElementById('panel-title');
         this.panelContent = document.getElementById('panel-content');
+        this.processingCourtEvent = false; // 朝会事件处理标记
         
         this.setupEventListeners();
         this.updateHeader();
@@ -36,6 +37,10 @@ export class UIManager {
 
         document.getElementById('btn-military').addEventListener('click', () => {
             this.showMilitaryPanel();
+        });
+
+        document.getElementById('btn-court').addEventListener('click', () => {
+            this.triggerCourtMeeting();
         });
 
         document.getElementById('btn-internal').addEventListener('click', () => {
@@ -114,6 +119,16 @@ export class UIManager {
             if (event === 'battleCompleted' && data) {
                 this.showMessage('战斗结束', '野战结束！');
             }
+            
+            // 朝会事件处理完成
+            if (event === 'courtEventResolved' && data) {
+                this.updateHeader();
+            }
+        });
+        
+        // 监听朝会触发事件
+        window.addEventListener('courtMeetingTriggered', (e) => {
+            this.showCourtMeeting(e.detail.events);
         });
     }
 
@@ -514,6 +529,177 @@ export class UIManager {
         } else {
             this.showMessage('任命失败', result.message);
         }
+    }
+
+    /**
+     * 触发朝会
+     */
+    triggerCourtMeeting() {
+        const events = this.gameState.triggerCourtMeeting();
+        this.showCourtMeeting(events);
+    }
+    
+    /**
+     * 显示朝会面板
+     */
+    showCourtMeeting(events = null) {
+        if (!events) {
+            events = this.gameState.getPendingCourtEvents();
+        }
+        
+        if (events.length === 0) {
+            this.showMessage('朝会', '当前无事件需要处理。');
+            return;
+        }
+        
+        this.showPanel('朝廷会议', this.renderCourtEvents(events));
+    }
+    
+    /**
+     * 渲染朝会事件
+     */
+    renderCourtEvents(events) {
+        let html = '<div class="court-meeting">';
+        
+        html += '<div style="text-align: center; color: #d4af37; margin-bottom: 20px;">';
+        html += '<p style="font-size: 16px; font-weight: bold;">★ 朝廷会议 ★</p>';
+        html += '<p style="font-size: 12px;color: #e8dcc4;">诸位爱卿，有事启奏，无事退朝。</p>';
+        html += '</div>';
+        
+        // 显示事件数量
+        html += `<div style="margin-bottom: 15px; padding: 10px; background: rgba(212, 175, 55, 0.1); border-left: 3px solid #d4af37;">`;
+        html += `<strong>待处理事件：${events.length} 件</strong>`;
+        html += '</div>';
+        
+        // 显示第一个事件
+        const currentEvent = events[0];
+        html += this.renderSingleCourtEvent(currentEvent, 0, events.length);
+        
+        html += '</div>';
+        
+        // 绑定按钮事件
+        setTimeout(() => {
+            document.querySelectorAll('.court-option-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    // 防止重复触发
+                    if (e.target.disabled || this.processingCourtEvent) {
+                        return;
+                    }
+                    const eventId = e.target.dataset.eventId;
+                    const optionIndex = parseInt(e.target.dataset.optionIndex);
+                    this.handleCourtEventChoice(eventId, optionIndex);
+                });
+            });
+        }, 100);
+        
+        return html;
+    }
+    
+    /**
+     * 渲染单个朝会事件
+     */
+    renderSingleCourtEvent(event, index, total) {
+        const priorityLabels = {
+            3: '<span style="color: #e74c3c;">★★★ 紧急</span>',
+            2: '<span style="color: #f39c12;">★★ 重要</span>',
+            1: '<span style="color: #3498db;">★ 一般</span>',
+            0: '<span style="color: #95a5a6;">普通</span>'
+        };
+        
+        let html = `<div class="court-event-item" style="margin-bottom: 20px;">`;
+        
+        // 事件编号和优先级
+        html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">`;
+        html += `<span style="color: #d4af37; font-weight: bold;">第 ${index + 1}/${total} 件</span>`;
+        html += `<span>${priorityLabels[event.priority] || ''}</span>`;
+        html += '</div>';
+        
+        // 事件标题
+        html += `<h3 style="color: #d4af37; margin: 10px 0; font-size: 18px;">${event.title}</h3>`;
+        
+        // 事件描述
+        html += `<div style="background: rgba(58, 47, 31, 0.5); padding: 15px; border-radius: 5px; margin: 15px 0; border: 1px solid #8b7355;">`;
+        html += `<p style="line-height: 1.6; white-space: pre-line;">${event.description}</p>`;
+        html += '</div>';
+        
+        // 选项
+        html += '<div style="margin-top: 20px;">';
+        html += '<p style="color: #d4af37; font-weight: bold; margin-bottom: 10px;">—— 请主公决断 ——</p>';
+        
+        event.options.forEach((option, optionIndex) => {
+            html += `<button class="court-option-btn" 
+                data-event-id="${event.id}" 
+                data-option-index="${optionIndex}"
+                style="
+                    display: block;
+                    width: 100%;
+                    margin: 8px 0;
+                    padding: 12px;
+                    background: rgba(212, 175, 55, 0.2);
+                    border: 2px solid #d4af37;
+                    border-radius: 5px;
+                    color: #e8dcc4;
+                    font-size: 14px;
+                    cursor: pointer;
+                    transition: all 0.2s;
+                    text-align: left;
+                ">
+                ${option.text}
+            </button>`;
+        });
+        
+        html += '</div>';
+        html += '</div>';
+        
+        return html;
+    }
+    
+    /**
+     * 处理朝会事件选择
+     */
+    handleCourtEventChoice(eventId, optionIndex) {
+        // 防止重复处理
+        if (this.processingCourtEvent) {
+            return;
+        }
+        this.processingCourtEvent = true;
+        
+        // 立即禁用所有按钮
+        document.querySelectorAll('.court-option-btn').forEach(btn => {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+        });
+        
+        const result = this.gameState.handleCourtEventChoice(eventId, optionIndex);
+        
+        if (result.success || result.success === undefined) {
+            // 显示结果
+            this.showMessage('处理结果', result.message || '已处理');
+            
+            // 检查是否还有更多事件
+            setTimeout(() => {
+                const remainingEvents = this.gameState.getPendingCourtEvents();
+                if (remainingEvents.length > 0) {
+                    this.showCourtMeeting(remainingEvents);
+                } else {
+                    this.hidePanel();
+                }
+                this.processingCourtEvent = false;
+            }, 1500);
+        } else {
+            this.showMessage('处理失败', result.message);
+            // 失败时也重新显示事件
+            setTimeout(() => {
+                const events = this.gameState.getPendingCourtEvents();
+                if (events.length > 0) {
+                    this.showCourtMeeting(events);
+                }
+                this.processingCourtEvent = false;
+            }, 1500);
+        }
+        
+        this.updateHeader();
     }
 
     /**

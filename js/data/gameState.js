@@ -36,6 +36,7 @@ import {
 } from './military.js';
 
 import { AISystem } from '../ai/aiSystem.js';
+import { CourtMeetingSystem } from './courtMeeting.js';
 
 class GameStateManager {
     constructor() {
@@ -45,6 +46,7 @@ class GameStateManager {
         this.gameSpeed = 1; // 1=正常, 2=2倍速, 4=4倍速, 0=暂停
         this.daysPassed = 0;
         this.aiSystem = null;
+        this.courtMeetingSystem = null;
         this.armyIdCounter = 1;
     }
 
@@ -117,6 +119,9 @@ class GameStateManager {
         
         // 初始化AI系统
         this.aiSystem = new AISystem(this);
+        
+        // 初始化朝会系统
+        this.courtMeetingSystem = new CourtMeetingSystem(this);
         
         this.notifyListeners('initialized');
     }
@@ -207,6 +212,11 @@ class GameStateManager {
             // 更新AI
             if (this.aiSystem) {
                 this.aiSystem.update(this.state.currentTurn);
+            }
+            
+            // 更新朝会系统
+            if (this.courtMeetingSystem) {
+                this.courtMeetingSystem.update(1);
             }
         }
         
@@ -728,6 +738,55 @@ class GameStateManager {
         return { success: true, message: '军队开始移动' };
     }
     
+    /**
+     * 获取玩家的城池列表
+     */
+    getPlayerCities() {
+        const playerFaction = this.getPlayerFaction();
+        return playerFaction.cities.map(cityId => this.getCity(cityId));
+    }
+    
+    /**
+     * 获取玩家的武将列表
+     */
+    getPlayerGenerals() {
+        const playerFaction = this.getPlayerFaction();
+        return playerFaction.generals.map(generalId => this.getGeneral(generalId));
+    }
+    
+    /**
+     * 触发朝会
+     */
+    triggerCourtMeeting() {
+        if (this.courtMeetingSystem) {
+            return this.courtMeetingSystem.triggerCourtMeeting();
+        }
+        return [];
+    }
+    
+    /**
+     * 处理朝会事件选择
+     */
+    handleCourtEventChoice(eventId, optionIndex) {
+        if (this.courtMeetingSystem) {
+            const result = this.courtMeetingSystem.handleEventChoice(eventId, optionIndex);
+            // 更新UI
+            this.notifyListeners('courtEventResolved', { eventId, result });
+            return result;
+        }
+        return { success: false, message: '朝会系统未初始化' };
+    }
+    
+    /**
+     * 获取待处理的朝会事件
+     */
+    getPendingCourtEvents() {
+        if (this.courtMeetingSystem) {
+            return this.courtMeetingSystem.getPendingEvents();
+        }
+        return [];
+    }
+
     /**
      * 任命武将为太守
      */
