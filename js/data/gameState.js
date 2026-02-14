@@ -30,7 +30,9 @@ import {
     updateArmyPosition,
     checkArrival,
     simulateBattle,
-    calculateArmyPower
+    calculateArmyPower,
+    findRoadPath,
+    convertCityPathToCoordinates
 } from './military.js';
 
 import { AISystem } from '../ai/aiSystem.js';
@@ -395,6 +397,10 @@ class GameStateManager {
         const armyId = 'army' + this.armyIdCounter++;
         const army = createArmy(armyId, playerFaction.id, cityId, troops, generalId);
         
+        // 设置军队位置为城池位置
+        army.x = city.position.x;
+        army.y = city.position.y;
+        
         if (!this.state.armies) {
             this.state.armies = {};
         }
@@ -425,6 +431,12 @@ class GameStateManager {
                 if (arrived) {
                     console.log(`军队 ${armyId} 到达目的地`);
                     army.mission = 'idle';
+                    
+                    // 更新军队的起始城市为目标城市
+                    if (army.destination.cityId) {
+                        army.origin = army.destination.cityId;
+                        console.log(`军队现在驻扎在 ${this.state.cities[army.origin].name}`);
+                    }
                     
                     // 检查是否有敌军或敌对城池
                     this.checkBattle(army);
@@ -573,13 +585,17 @@ class GameStateManager {
         console.log(`野战: ${general1.name} vs ${general2.name}`);
         
         // 使用 simulateBattle 进行战斗
-        const result = simulateBattle(army1, general1, army2, general2);
+        const result = simulateBattle(army1, army2, general1, general2, 0);
         
-        army1.troops = result.army1Remaining;
-        army2.troops = result.army2Remaining;
+        // 应用伤亡
+        army1.troops -= result.attackerCasualties;
+        army2.troops -= result.defenderCasualties;
         
-        army1.morale = Math.max(30, army1.morale - 15);
-        army2.morale = Math.max(30, army2.morale - 15);
+        // 更新士气
+        army1.morale = Math.max(30, army1.morale + result.attackerMoraleChange);
+        army2.morale = Math.max(30, army2.morale + result.defenderMoraleChange);
+        
+        console.log(`野战结果: 胜者=${result.winner}, ${general1.name}剩余${army1.troops}人, ${general2.name}剩余${army2.troops}人`);
         
         // 检查是否有军队被消灭
         if (army1.troops <= 0) {
@@ -600,7 +616,94 @@ class GameStateManager {
     }
     
     /**
-     * 移动军队
+     * 移动军队到目标城市（只能沿道路移动）
+     * @param {string} armyId - 军队ID
+     * @param {string} targetCityId - 目标城市ID
+     */
+    moveArmyToCity(armyId, targetCityId) {
+        const army = this.state.armies[armyId];
+        if (!army) {
+            return { success: false, message: '军队不存在' };
+        }
+        
+        const playerFaction = this.getPlayerFaction();
+        if (army.faction !== playerFaction.id) {
+            return { success: false, message: '这不是你的军队' };
+        }
+        
+        const targetCity = this.getCity(targetCityId);
+        if (!targetCity) {
+            return { success: false, message: '目标城市不存在' };
+        }
+        
+        // 找到军队当前所在的城市（或最近的城市）
+        let currentCityId = army.origin;
+        
+        // 如果军队正在移动，找到它的目标城市
+        if (army.destination && army.destination.cityId) {
+            currentCityId = army.destination.cityId;
+        } else if (army.path && army.path.length > 0) {
+            // 如果有路径，使用路径中的最后一个城市
+            const lastPoint = army.path[army.path.length - 1];
+            if (lastPoint.cityId) {
+                currentCityId = lastPoint.cityId;
+            }
+        } else {
+            // 否则找到军队当前位置最近的城市
+            let minDistance = Infinity;
+            for (const cityId in this.state.cities) {
+                const city = this.state.cities[cityId];
+                const distance = Math.sqrt(
+                    Math.pow(city.position.x - army.x, 2) + 
+                    Math.pow(city.position.y - army.y, 2)
+                );
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    currentCityId = cityId;
+                }
+            }
+        }
+        
+        // 使用道路网络查找路径
+        const cityPath = findRoadPath(
+            currentCityId, 
+            targetCityId, 
+            this.state.roads, 
+            this.state.cities
+        );
+        
+        if (!cityPath) {
+            return { 
+                success: false, 
+                message: `无法通过道路到达 ${targetCity.name}，请建造道路连接` 
+            };
+        }
+        
+        // 转换为坐标路径
+        const coordinatePath = convertCityPathToCoordinates(cityPath, this.state.cities);
+        
+        if (coordinatePath.length === 0) {
+            return { success: false, message: '路径计算失败' };
+        }
+        
+        // 设置军队路径
+        army.path = coordinatePath;
+        army.destination = coordinatePath[coordinatePath.length - 1];
+        army.mission = 'moving';
+        
+        console.log(`军队 ${armyId} 开始通过道路移动到 ${targetCity.name}，路径:`, cityPath.map(id => this.state.cities[id].name).join(' -> '));
+        this.notifyListeners('armyMoved', { armyId, army, cityPath });
+        
+        return { 
+            success: true, 
+            message: `军队开始向 ${targetCity.name} 移动`,
+            path: cityPath
+        };
+    }
+    
+    /**
+     * 移动军队（旧接口，已废弃）
+     * @deprecated 使用 moveArmyToCity 代替
      */
     moveArmy(armyId, targetX, targetY) {
         const army = this.state.armies[armyId];

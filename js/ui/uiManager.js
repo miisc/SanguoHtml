@@ -750,7 +750,11 @@ export class UIManager {
         const playerFaction = this.gameState.getPlayerFaction();
         if (army.faction === playerFaction.id) {
             html += '<h3>操作</h3>';
-            html += '<p style="color: #d4af37;">点击地图上的目标位置移动军队</p>';
+            html += '<div style="background: rgba(212, 175, 55, 0.2); padding: 10px; border-radius: 5px; margin: 10px 0; border: 2px solid #d4af37;">';
+            html += '<p style="color: #d4af37; font-size: 14px; margin: 5px 0; font-weight: bold;">✓ 军队已选中</p>';
+            html += '<p style="color: #e8dcc4; font-size: 12px; margin: 5px 0;">→ 点击地图任意位置</p>';
+            html += '<p style="color: #e8dcc4; font-size: 12px; margin: 5px 0;">→ 军队将移动到该位置</p>';
+            html += '</div>';
             
             // 解散军队按钮
             html += `<button class="action-btn" onclick="window.uiManager.disbandArmy('${armyId}')">解散军队</button>`;

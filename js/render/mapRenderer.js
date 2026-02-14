@@ -129,24 +129,54 @@ export class MapRenderer {
         const gridSize = state.mapData.gridSize * this.zoom;
         const playerFaction = this.gameState.getPlayerFaction();
         
-        // 如果已选中军队，点击地图移动军队
-        if (this.selectedArmy) {
+        // 检查是否点击了城池（优先处理城池点击）
+        let clickedCityId = null;
+        for (const cityId in state.cities) {
+            const city = state.cities[cityId];
+            const cityX = this.offsetX + city.position.x * gridSize;
+            const cityY = this.offsetY + city.position.y * gridSize;
+            
+            const distance = Math.sqrt(Math.pow(x - cityX, 2) + Math.pow(y - cityY, 2));
+            
+            if (distance < 10 * this.zoom) {
+                clickedCityId = cityId;
+                break;
+            }
+        }
+        
+        // 如果已选中军队，点击城市移动军队
+        if (this.selectedArmy && clickedCityId) {
             const army = state.armies[this.selectedArmy];
             if (army && army.faction === playerFaction.id) {
-                // 计算目标位置（地图坐标）
-                const targetX = (x - this.offsetX) / gridSize;
-                const targetY = (y - this.offsetY) / gridSize;
-                
-                // 移动军队
-                const result = this.gameState.moveArmy(this.selectedArmy, targetX, targetY);
+                // 移动军队到目标城市
+                const result = this.gameState.moveArmyToCity(this.selectedArmy, clickedCityId);
                 if (result.success) {
-                    console.log(`军队开始移动到 (${targetX.toFixed(1)}, ${targetY.toFixed(1)})`);
+                    const targetCity = state.cities[clickedCityId];
+                    console.log(`军队开始向 ${targetCity.name} 移动`);
+                    // 显示提示信息
+                    if (result.path) {
+                        const pathNames = result.path.map(id => state.cities[id].name).join(' → ');
+                        alert(`军队将沿以下路径移动：\n${pathNames}`);
+                    }
+                } else {
+                    alert(result.message);
                 }
                 
                 this.selectedArmy = null;
                 this.render();
                 return;
             }
+        }
+        
+        // 如果点击了城池，选中城池
+        if (clickedCityId) {
+            this.selectedCity = clickedCityId;
+            this.selectedArmy = null;
+            this.render();
+            
+            // 触发城池选中事件
+            window.dispatchEvent(new CustomEvent('citySelected', { detail: { cityId: clickedCityId } }));
+            return;
         }
         
         // 检查是否点击了军队
@@ -408,13 +438,28 @@ export class MapRenderer {
             this.ctx.lineWidth = 1;
             this.ctx.stroke();
             
-            // 如果被选中，绘制高亮
+            // 如果被选中，绘制高亮和闪烁效果
             if (this.selectedArmy === armyId) {
+                // 外圈高亮
                 this.ctx.beginPath();
                 this.ctx.arc(x, y, 12 * this.zoom, 0, Math.PI * 2);
                 this.ctx.strokeStyle = '#d4af37';
                 this.ctx.lineWidth = 3;
                 this.ctx.stroke();
+                
+                // 闪烁的光环
+                const pulse = Math.sin(Date.now() / 200) * 0.3 + 0.7;
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, 16 * this.zoom, 0, Math.PI * 2);
+                this.ctx.strokeStyle = `rgba(212, 175, 55, ${pulse * 0.5})`;
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+                
+                // 顶部显示文字提示
+                this.ctx.fillStyle = '#d4af37';
+                this.ctx.font = `bold ${11 * this.zoom}px Microsoft YaHei`;
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('点击目标位置移动', x, y - 25 * this.zoom);
             }
             
             // 绘制武将名字

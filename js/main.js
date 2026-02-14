@@ -106,6 +106,9 @@ class Game {
         // 更新游戏状态
         this.gameState.update(deltaTime);
         
+        // 渲染地图（用于动画效果）
+        this.mapRenderer.render();
+        
         // 请求下一帧
         requestAnimationFrame(() => this.gameLoop());
     }
