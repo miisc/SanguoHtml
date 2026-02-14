@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phase 3 自动化测试</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            background-color: #2c2416;
+            color: #e8dcc4;
+            padding: 20px;
+        }
+        h1 {
+            color: #d4af37;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: rgba(58, 47, 31, 0.6);
+            border: 1px solid #8b7355;
+            border-radius: 5px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .pass {
+            background-color: rgba(0, 128, 0, 0.3);
+            border-left: 4px solid green;
+        }
+        .fail {
+            background-color: rgba(255, 0, 0, 0.3);
+            border-left: 4px solid red;
+        }
+        .info {
+            background-color: rgba(0, 128, 255, 0.3);
+            border-left: 4px solid blue;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3a2f1f;
+            border: 2px solid #8b7355;
+            border-radius: 5px;
+            color: #e8dcc4;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #4a3f2f;
+        }
+        #test-log {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>三国志HTML - Phase 3 自动化测试</h1>
+    
+    <div class="test-section">
+        <h2>测试控制</h2>
+        <button onclick="runAllTests()">运行所有测试</button>
+        <button onclick="runTimeTest()">测试时间系统</button>
+        <button onclick="runBuildingTest()">测试建筑系统</button>
+        <button onclick="runMilitaryTest()">测试军队系统</button>
+        <button onclick="runAITest()">测试AI系统</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试日志</h2>
+        <div id="test-log"></div>
+    </div>
+    
+    <script type="module">
+        import { gameState } from './js/data/gameState.js';
+        
+        window.gameState = gameState;
+        let testResults = [];
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('test-log');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(resultDiv);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            testResults.push({ message, type, time: new Date() });
+        }
+        
+        window.log = log;
+        
+        window.clearLog = function() {
+            document.getElementById('test-log').innerHTML = '';
+            testResults = [];
+        };
+        
+        // 测试时间系统
+        window.runTimeTest = function() {
+            log('===== 开始测试时间系统 =====', 'info');
+            
+            try {
+                // 初始化游戏
+                gameState.initialize('shu');
+                log('✓ 游戏初始化成功', 'pass');
+                
+                const state = gameState.getState();
+                const initialTurn = state.currentTurn;
+                log(`初始回合: ${initialTurn}`, 'info');
+                
+                // 测试速度设置
+                gameState.setGameSpeed(1);
+                if (gameState.getGameSpeed() === 1) {
+                    log('✓ 设置速度为1x成功', 'pass');
+                } else {
+                    log('✗ 速度设置失败', 'fail');
+                }
+                
+                // 模拟时间推进
+                gameState.advanceDays(10);
+                const newTurn = state.currentTurn;
+                if (newTurn === initialTurn + 10) {
+                    log(`✓ 时间推进正确: ${initialTurn} -> ${newTurn}`, 'pass');
+                } else {
+                    log(`✗ 时间推进错误: 期望${initialTurn + 10}, 实际${newTurn}`, 'fail');
+                }
+                
+                // 测试季节变化
+                const initialSeason = state.currentSeason;
+                gameState.advanceDays(30);
+                if (state.currentSeason !== initialSeason) {
+                    log(`✓ 季节变化正确: ${initialSeason} -> ${state.currentSeason}`, 'pass');
+                } else {
+                    log(`季节: ${state.currentSeason} (可能需要更多天数)`, 'info');
+                }
+                
+                log('===== 时间系统测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 测试建筑系统
+        window.runBuildingTest = function() {
+            log('===== 开始测试建筑系统 =====', 'info');
+            
+            try {
+                const state = gameState.getState();
+                const playerFaction = gameState.getPlayerFaction();
+                
+                // 给玩家足够的资源
+                playerFaction.resources.gold = 10000;
+                playerFaction.resources.wood = 10000;
+                playerFaction.resources.food = 10000;
+                log('设置玩家资源: 10000金/木/粮', 'info');
+                
+                // 获取第一个城池
+                const cityId = playerFaction.cities[0];
+                const city = state.cities[cityId];
+                log(`测试城池: ${city.name}`, 'info');
+                
+                const initialGold = playerFaction.resources.gold;
+                
+                // 尝试建造农田
+                const result = gameState.buildOrUpgradeBuilding(cityId, 'farm');
+                if (result.success) {
+                    log(`✓ 建造${result.building.name}成功`, 'pass');
+                    
+                    // 检查资源是否扣除
+                    if (playerFaction.resources.gold < initialGold) {
+                        log('✓ 资源正确扣除', 'pass');
+                    } else {
+                        log('✗ 资源未扣除', 'fail');
+                    }
+                    
+                    // 检查建筑是否在建造中
+                    const building = city.buildings.find(b => b.type === 'farm');
+                    if (building && building.underConstruction) {
+                        log('✓ 建筑进入建造状态', 'pass');
+                        
+                        // 推进时间直到建造完成
+                        gameState.advanceDays(building.remainingDays + 1);
+                        gameState.updateConstructions();
+                        
+                        if (!building.underConstruction) {
+                            log('✓ 建筑建造完成', 'pass');
+                        } else {
+                            log('✗ 建筑未完成', 'fail');
+                        }
+                    }
+                } else {
+                    log(`✗ 建造失败: ${result.message}`, 'fail');
+                }
+                
+                log('===== 建筑系统测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 测试军队系统
+        window.runMilitaryTest = function() {
+            log('===== 开始测试军队系统 =====', 'info');
+            
+            try {
+                const state = gameState.getState();
+                const playerFaction = gameState.getPlayerFaction();
+                
+                // 给玩家足够的资源
+                playerFaction.resources.gold = 10000;
+                playerFaction.resources.food = 10000;
+                log('设置玩家资源: 10000金/粮', 'info');
+                
+                // 获取城池和武将
+                const cityId = playerFaction.cities[0];
+                const generalId = playerFaction.generals[0];
+                
+                const city = state.cities[cityId];
+                const general = state.generals[generalId];
+                
+                log(`测试城池: ${city.name}`, 'info');
+                log(`测试武将: ${general.name}`, 'info');
+                
+                const initialGold = playerFaction.resources.gold;
+                const initialArmyCount = Object.keys(state.armies || {}).length;
+                
+                // 招募军队
+                const result = gameState.recruitArmy(cityId, generalId, 100);
+                
+                if (result.success) {
+                    log('✓ 招募军队成功', 'pass');
+                    
+                    // 检查资源扣除
+                    if (playerFaction.resources.gold < initialGold) {
+                        log('✓ 资源正确扣除', 'pass');
+                    } else {
+                        log('✗ 资源未扣除', 'fail');
+                    }
+                    
+                    // 检查军队是否创建
+                    const newArmyCount = Object.keys(state.armies || {}).length;
+                    if (newArmyCount === initialArmyCount + 1) {
+                        log('✓ 军队创建成功', 'pass');
+                        
+                        // 检查军队属性
+                        const army = result.army;
+                        if (army.troops === 100 && army.general === generalId) {
+                            log('✓ 军队属性正确', 'pass');
+                        } else {
+                            log('✗ 军队属性错误', 'fail');
+                        }
+                    } else {
+                        log('✗ 军队未创建', 'fail');
+                    }
+                } else {
+                    log(`✗ 招募失败: ${result.message}`, 'fail');
+                }
+                
+                log('===== 军队系统测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 测试AI系统
+        window.runAITest = function() {
+            log('===== 开始测试AI系统 =====', 'info');
+            
+            try {
+                const state = gameState.getState();
+                
+                // 获取AI势力
+                const aiFaction = state.factions.wei;
+                
+                // 给AI足够的资源
+                aiFaction.resources.gold = 10000;
+                aiFaction.resources.wood = 10000;
+                aiFaction.resources.food = 10000;
+                log('设置AI资源: 10000金/木/粮', 'info');
+                
+                const aiCity = state.cities[aiFaction.cities[0]];
+                const initialBuildings = aiCity.buildings.length;
+                
+                log(`AI城池: ${aiCity.name}, 初始建筑数: ${initialBuildings}`, 'info');
+                
+                // 让AI进行决策
+                log('让AI进行100天的发展...', 'info');
+                for (let i = 0; i < 100; i++) {
+                    gameState.advanceDays(1);
+                }
+                
+                // 检查AI是否建造了建筑
+                const newBuildings = aiCity.buildings.length;
+                if (newBuildings > initialBuildings) {
+                    log(`✓ AI成功建造建筑 (${initialBuildings} -> ${newBuildings})`, 'pass');
+                    
+                    // 列出AI建造的建筑
+                    aiCity.buildings.forEach(b => {
+                        log(`  - ${b.name} Lv${b.level}`, 'info');
+                    });
+                } else {
+                    log('⚠ AI未建造新建筑（可能资源不足或决策时机未到）', 'info');
+                }
+                
+                log('===== AI系统测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 运行所有测试
+        window.runAllTests = function() {
+            clearLog();
+            log('========================================', 'info');
+            log('    三国志HTML - Phase 3 自动化测试    ', 'info');
+            log('========================================', 'info');
+            
+            setTimeout(() => runTimeTest(), 100);
+            setTimeout(() => runBuildingTest(), 500);
+            setTimeout(() => runMilitaryTest(), 1000);
+            setTimeout(() => runAITest(), 1500);
+            setTimeout(() => {
+                log('========================================', 'info');
+                log('          所有测试完成          ', 'info');
+                log('========================================', 'info');
+                
+                // 统计结果
+                const passed = testResults.filter(r => r.type === 'pass').length;
+                const failed = testResults.filter(r => r.type === 'fail').length;
+                log(`通过: ${passed}, 失败: ${failed}`, 'info');
+            }, 2000);
+        };
+        
+        // 页面加载后自动运行测试
+        window.addEventListener('load', () => {
+            log('测试页面已加载，点击按钮开始测试', 'info');
+        });
+    </script>
+</body>
+</html>

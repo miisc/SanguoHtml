@@ -126,6 +126,21 @@ export function createGameState() {
 }
 
 /**
+ * 创建道路数据
+ */
+export function createRoad(id, fromCityId, toCityId, level = 1) {
+    return {
+        id,
+        from: fromCityId,
+        to: toCityId,
+        level, // 道路等级：1=小路, 2=驿道, 3=官道
+        condition: 100, // 道路状况 0-100
+        buildProgress: 0, // 建造进度（如果正在建造）
+        underConstruction: false
+    };
+}
+
+/**
  * 季节定义
  */
 export const SEASONS = ["春季", "夏季", "秋季", "冬季"];
@@ -193,6 +208,20 @@ export const INITIAL_CITIES = [
     { id: "xiangyang", name: "襄阳", x: 25, y: 23, owner: null },
     { id: "hanzhong", name: "汉中", x: 15, y: 18, owner: null },
     { id: "jiangling", name: "江陵", x: 28, y: 28, owner: null }
+];
+
+/**
+ * 初始道路数据
+ */
+export const INITIAL_ROADS = [
+    { id: "road1", from: "chengdu", to: "hanzhong", level: 2 }, // 蜀国通道
+    { id: "road2", from: "hanzhong", to: "xiangyang", level: 2 }, // 中部通道
+    { id: "road3", from: "luoyang", to: "xuchang", level: 3 }, // 魏国官道
+    { id: "road4", from: "xuchang", to: "xiangyang", level: 2 }, // 南下通道
+    { id: "road5", from: "xiangyang", to: "jiangling", level: 2 }, // 荆州通道
+    { id: "road6", from: "jiangling", to: "changsha", level: 2 }, // 南方通道
+    { id: "road7", from: "changsha", to: "jianye", level: 2 }, // 吴国通道
+    { id: "road8", from: "jiangling", to: "jianye", level: 2 } // 东部通道
 ];
 
 /**

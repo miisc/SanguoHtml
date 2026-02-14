@@ -32,6 +32,9 @@ class Game {
             // 初始化UI管理器
             this.uiManager = new UIManager(this.gameState);
             
+            // 暴露到 window 以便 HTML 中调用
+            window.uiManager = this.uiManager;
+            
             // 初始化地图渲染器
             const canvas = document.getElementById('game-map');
             this.mapRenderer = new MapRenderer(canvas, this.gameState);

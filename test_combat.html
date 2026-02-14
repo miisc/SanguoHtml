@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>军队移动与战斗系统测试</title>
+    <style>
+        body {
+            font-family: "Microsoft YaHei", sans-serif;
+            background-color: #2c2416;
+            color: #e8dcc4;
+            padding: 20px;
+        }
+        h1 {
+            color: #d4af37;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: rgba(58, 47, 31, 0.6);
+            border: 1px solid #8b7355;
+            border-radius: 5px;
+        }
+        .test-result {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .pass {
+            background-color: rgba(0, 128, 0, 0.3);
+            border-left: 4px solid green;
+        }
+        .fail {
+            background-color: rgba(255, 0, 0, 0.3);
+            border-left: 4px solid red;
+        }
+        .info {
+            background-color: rgba(0, 128, 255, 0.3);
+            border-left: 4px solid blue;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #3a2f1f;
+            border: 2px solid #8b7355;
+            border-radius: 5px;
+            color: #e8dcc4;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #4a3f2f;
+        }
+        #test-log {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>三国志HTML - 军队移动与战斗系统测试</h1>
+    
+    <div class="test-section">
+        <h2>测试控制</h2>
+        <button onclick="runAllTests()">运行所有测试</button>
+        <button onclick="testArmyMovement()">测试军队移动</button>
+        <button onclick="testSiege()">测试攻城战</button>
+        <button onclick="testFieldBattle()">测试野战</button>
+        <button onclick="clearLog()">清空日志</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>测试日志</h2>
+        <div id="test-log"></div>
+    </div>
+    
+    <script type="module">
+        import { gameState } from './js/data/gameState.js';
+        
+        window.gameState = gameState;
+        let testResults = [];
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('test-log');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = `test-result ${type}`;
+            resultDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(resultDiv);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            
+            testResults.push({ message, type, time: new Date() });
+        }
+        
+        window.log = log;
+        
+        window.clearLog = function() {
+            document.getElementById('test-log').innerHTML = '';
+            testResults = [];
+        };
+        
+        // 测试军队移动
+        window.testArmyMovement = function() {
+            log('===== 开始测试军队移动 =====', 'info');
+            
+            try {
+                // 初始化游戏
+                gameState.initGame('shu');
+                const state = gameState.getState();
+                const playerFaction = gameState.getPlayerFaction();
+                
+                // 给玩家资源
+                playerFaction.resources.gold = 10000;
+                playerFaction.resources.food = 10000;
+                
+                // 招募军队
+                const cityId = playerFaction.cities[0];
+                const generalId = playerFaction.generals[0];
+                const city = state.cities[cityId];
+                
+                log(`在 ${city.name} 招募军队`, 'info');
+                const result = gameState.recruitArmy(cityId, generalId, 100);
+                
+                if (!result.success) {
+                    log(`✗ 招募失败: ${result.message}`, 'fail');
+                    return;
+                }
+                
+                log('✓ 招募军队成功', 'pass');
+                const armyId = result.army.id;
+                const army = state.armies[armyId];
+                
+                const initialX = army.x;
+                const initialY = army.y;
+                log(`初始位置: (${initialX.toFixed(2)}, ${initialY.toFixed(2)})`, 'info');
+                
+                // 移动军队
+                const targetX = initialX + 5;
+                const targetY = initialY + 5;
+                log(`移动到目标: (${targetX.toFixed(2)}, ${targetY.toFixed(2)})`, 'info');
+                
+                const moveResult = gameState.moveArmy(armyId, targetX, targetY);
+                
+                if (!moveResult.success) {
+                    log(`✗ 移动失败: ${moveResult.message}`, 'fail');
+                    return;
+                }
+                
+                log('✓ 军队开始移动', 'pass');
+                
+                // 检查军队状态
+                if (army.mission === 'moving') {
+                    log('✓ 军队状态设置为"移动中"', 'pass');
+                } else {
+                    log(`✗ 军队状态错误: ${army.mission}`, 'fail');
+                }
+                
+                if (army.destination && army.destination.x === targetX && army.destination.y === targetY) {
+                    log('✓ 目标位置设置正确', 'pass');
+                } else {
+                    log('✗ 目标位置设置错误', 'fail');
+                }
+                
+                // 模拟时间推进，检查移动
+                log('模拟军队移动...', 'info');
+                for (let i = 0; i < 100; i++) {
+                    gameState.update(0.1); // 模拟0.1秒
+                    
+                    if (army.mission === 'idle') {
+                        log(`✓ 军队到达目标位置: (${army.x.toFixed(2)}, ${army.y.toFixed(2)})`, 'pass');
+                        break;
+                    }
+                }
+                
+                if (army.mission === 'moving') {
+                    log('⚠ 军队仍在移动中（可能需要更多时间）', 'info');
+                }
+                
+                log('===== 军队移动测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 测试攻城战
+        window.testSiege = function() {
+            log('===== 开始测试攻城战 =====', 'info');
+            
+            try {
+                // 初始化游戏
+                gameState.initialize('shu');
+                const state = gameState.getState();
+                const playerFaction = gameState.getPlayerFaction();
+                
+                // 给玩家资源
+                playerFaction.resources.gold = 20000;
+                playerFaction.resources.food = 20000;
+                
+                // 找到一个敌对城池
+                const enemyCity = Object.values(state.cities).find(c => c.owner !== playerFaction.id);
+                
+                if (!enemyCity) {
+                    log('✗ 未找到敌对城池', 'fail');
+                    return;
+                }
+                
+                log(`目标城池: ${enemyCity.name}`, 'info');
+                log(`城池位置: (${enemyCity.position.x}, ${enemyCity.position.y})`, 'info');
+                
+                // 招募强大的军队
+                const cityId = playerFaction.cities[0];
+                const generalId = playerFaction.generals[0];
+                
+                log('招募强大军队（1000士兵）', 'info');
+                const result = gameState.recruitArmy(cityId, generalId, 1000);
+                
+                if (!result.success) {
+                    log(`✗ 招募失败: ${result.message}`, 'fail');
+                    return;
+                }
+                
+                const armyId = result.army.id;
+                const army = state.armies[armyId];
+                
+                log('✓ 招募成功', 'pass');
+                log(`军队兵力: ${army.troops}`, 'info');
+                
+                // 移动到敌对城池
+                log(`移动到敌城 ${enemyCity.name}`, 'info');
+                gameState.moveArmy(armyId, enemyCity.position.x, enemyCity.position.y);
+                
+                const initialOwner = enemyCity.owner;
+                const initialTroops = army.troops;
+                
+                // 模拟移动直到到达
+                let moved = false;
+                for (let i = 0; i < 200; i++) {
+                    gameState.update(0.1);
+                    
+                    if (army.mission === 'idle' || !state.armies[armyId]) {
+                        moved = true;
+                        break;
+                    }
+                }
+                
+                if (!moved) {
+                    log('⚠ 军队仍在移动中', 'info');
+                } else {
+                    // 检查战斗结果
+                    if (!state.armies[armyId]) {
+                        log('✗ 军队在攻城中全灭', 'fail');
+                    } else if (enemyCity.owner === playerFaction.id) {
+                        const casualties = initialTroops - army.troops;
+                        log(`✓ 攻城成功！占领了 ${enemyCity.name}`, 'pass');
+                        log(`损失士兵: ${casualties}`, 'info');
+                        log(`剩余兵力: ${army.troops}`, 'info');
+                    } else if (enemyCity.owner === initialOwner) {
+                        log('⚠ 攻城失败或未触发战斗', 'info');
+                        if (state.armies[armyId]) {
+                            log(`剩余兵力: ${state.armies[armyId].troops}`, 'info');
+                        }
+                    }
+                }
+                
+                log('===== 攻城战测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 测试野战
+        window.testFieldBattle = function() {
+            log('===== 开始测试野战 =====', 'info');
+            
+            try {
+                // 初始化游戏
+                gameState.initialize('shu');
+                const state = gameState.getState();
+                const playerFaction = gameState.getPlayerFaction();
+                
+                // 给双方资源
+                playerFaction.resources.gold = 20000;
+                playerFaction.resources.food = 20000;
+                
+                const enemyFaction = state.factions.wei;
+                enemyFaction.resources.gold = 20000;
+                enemyFaction.resources.food = 20000;
+                
+                // 招募玩家军队
+                const playerCity = playerFaction.cities[0];
+                const playerGeneral = playerFaction.generals[0];
+                
+                log('招募玩家军队（500士兵）', 'info');
+                const result1 = gameState.recruitArmy(playerCity, playerGeneral, 500);
+                
+                if (!result1.success) {
+                    log(`✗ 招募失败: ${result1.message}`, 'fail');
+                    return;
+                }
+                
+                const army1 = result1.army;
+                log('✓ 玩家军队招募成功', 'pass');
+                
+                // 招募敌军
+                const enemyCity = enemyFaction.cities[0];
+                const enemyGeneral = enemyFaction.generals[0];
+                
+                log('招募敌军（500士兵）', 'info');
+                const result2 = gameState.recruitArmy(enemyCity, enemyGeneral, 500);
+                
+                if (!result2.success) {
+                    log(`✗ 招募失败: ${result2.message}`, 'fail');
+                    return;
+                }
+                
+                const army2 = result2.army;
+                log('✓ 敌军招募成功', 'pass');
+                
+                // 设置军队位置在同一点
+                log('将两支军队移动到同一位置', 'info');
+                const battleX = 15;
+                const battleY = 15;
+                
+                gameState.moveArmy(army1.id, battleX, battleY);
+                gameState.moveArmy(army2.id, battleX, battleY);
+                
+                const initialTroops1 = army1.troops;
+                const initialTroops2 = army2.troops;
+                
+                // 模拟移动直到相遇
+                for (let i = 0; i < 300; i++) {
+                    gameState.update(0.1);
+                    
+                    // 检查是否有军队被消灭
+                    if (!state.armies[army1.id] || !state.armies[army2.id]) {
+                        break;
+                    }
+                }
+                
+                // 检查战斗结果
+                const army1Exists = !!state.armies[army1.id];
+                const army2Exists = !!state.armies[army2.id];
+                
+                if (!army1Exists && !army2Exists) {
+                    log('✓ 双方军队同归于尽', 'pass');
+                } else if (army1Exists && !army2Exists) {
+                    const casualties = initialTroops1 - state.armies[army1.id].troops;
+                    log('✓ 玩家军队获胜', 'pass');
+                    log(`损失: ${casualties}, 剩余: ${state.armies[army1.id].troops}`, 'info');
+                } else if (!army1Exists && army2Exists) {
+                    const casualties = initialTroops2 - state.armies[army2.id].troops;
+                    log('✓ 敌军获胜', 'pass');
+                    log(`敌军损失: ${casualties}, 剩余: ${state.armies[army2.id].troops}`, 'info');
+                } else {
+                    log('⚠ 军队未相遇或战斗未触发', 'info');
+                    log(`玩家军队位置: (${army1.x.toFixed(2)}, ${army1.y.toFixed(2)})`, 'info');
+                    log(`敌军位置: (${army2.x.toFixed(2)}, ${army2.y.toFixed(2)})`, 'info');
+                }
+                
+                log('===== 野战测试完成 =====', 'info');
+            } catch (error) {
+                log(`✗ 测试失败: ${error.message}`, 'fail');
+                console.error(error);
+            }
+        };
+        
+        // 运行所有测试
+        window.runAllTests = function() {
+            clearLog();
+            log('========================================', 'info');
+            log('   军队移动与战斗系统 - 完整测试    ', 'info');
+            log('========================================', 'info');
+            
+            setTimeout(() => testArmyMovement(), 100);
+            setTimeout(() => testSiege(), 2000);
+            setTimeout(() => testFieldBattle(), 4000);
+            setTimeout(() => {
+                log('========================================', 'info');
+                log('          所有测试完成          ', 'info');
+                log('========================================', 'info');
+                
+                // 统计结果
+                const passed = testResults.filter(r => r.type === 'pass').length;
+                const failed = testResults.filter(r => r.type === 'fail').length;
+                log(`通过: ${passed}, 失败: ${failed}`, 'info');
+            }, 6000);
+        };
+        
+        // 页面加载后提示
+        window.addEventListener('load', () => {
+            log('测试页面已加载，点击按钮开始测试', 'info');
+        });
+    </script>
+</body>
+</html>

@@ -26,6 +26,9 @@ export class MapRenderer {
         // 选中的城池
         this.selectedCity = null;
         
+        // 选中的军队
+        this.selectedArmy = null;
+        
         this.setupCanvas();
         this.setupEventListeners();
     }
@@ -124,6 +127,51 @@ export class MapRenderer {
         
         const state = this.gameState.getState();
         const gridSize = state.mapData.gridSize * this.zoom;
+        const playerFaction = this.gameState.getPlayerFaction();
+        
+        // 如果已选中军队，点击地图移动军队
+        if (this.selectedArmy) {
+            const army = state.armies[this.selectedArmy];
+            if (army && army.faction === playerFaction.id) {
+                // 计算目标位置（地图坐标）
+                const targetX = (x - this.offsetX) / gridSize;
+                const targetY = (y - this.offsetY) / gridSize;
+                
+                // 移动军队
+                const result = this.gameState.moveArmy(this.selectedArmy, targetX, targetY);
+                if (result.success) {
+                    console.log(`军队开始移动到 (${targetX.toFixed(1)}, ${targetY.toFixed(1)})`);
+                }
+                
+                this.selectedArmy = null;
+                this.render();
+                return;
+            }
+        }
+        
+        // 检查是否点击了军队
+        if (state.armies) {
+            for (const armyId in state.armies) {
+                const army = state.armies[armyId];
+                const armyX = this.offsetX + army.x * gridSize;
+                const armyY = this.offsetY + army.y * gridSize;
+                
+                const distance = Math.sqrt(Math.pow(x - armyX, 2) + Math.pow(y - armyY, 2));
+                
+                if (distance < 8 * this.zoom) {
+                    // 只能选择玩家的军队
+                    if (army.faction === playerFaction.id) {
+                        this.selectedArmy = armyId;
+                        this.selectedCity = null;
+                        this.render();
+                        
+                        // 触发军队选中事件
+                        window.dispatchEvent(new CustomEvent('armySelected', { detail: { armyId } }));
+                        return;
+                    }
+                }
+            }
+        }
         
         // 检查是否点击了城池
         for (const cityId in state.cities) {
@@ -135,6 +183,7 @@ export class MapRenderer {
             
             if (distance < 10 * this.zoom) {
                 this.selectedCity = cityId;
+                this.selectedArmy = null;
                 this.render();
                 
                 // 触发城池选中事件
@@ -145,6 +194,7 @@ export class MapRenderer {
         
         // 点击空白处取消选择
         this.selectedCity = null;
+        this.selectedArmy = null;
         this.render();
         window.dispatchEvent(new CustomEvent('cityDeselected'));
     }
@@ -187,8 +237,14 @@ export class MapRenderer {
         // 绘制网格
         this.renderGrid(state);
         
+        // 绘制道路（在城池之前）
+        this.renderRoads(state);
+        
         // 绘制城池
         this.renderCities(state);
+        
+        // 绘制军队
+        this.renderArmies(state);
         
         // 绘制势力边界（简化版）
         this.renderTerritories(state);
@@ -219,6 +275,62 @@ export class MapRenderer {
             this.ctx.moveTo(this.offsetX, screenY);
             this.ctx.lineTo(this.offsetX + state.mapData.width * gridSize, screenY);
             this.ctx.stroke();
+        }
+    }
+
+    /**
+     * 绘制道路
+     */
+    renderRoads(state) {
+        if (!state.roads) return;
+        
+        const gridSize = state.mapData.gridSize * this.zoom;
+        
+        for (const roadId in state.roads) {
+            const road = state.roads[roadId];
+            const fromCity = state.cities[road.from];
+            const toCity = state.cities[road.to];
+            
+            if (!fromCity || !toCity) continue;
+            
+            const fromX = this.offsetX + fromCity.position.x * gridSize;
+            const fromY = this.offsetY + fromCity.position.y * gridSize;
+            const toX = this.offsetX + toCity.position.x * gridSize;
+            const toY = this.offsetY + toCity.position.y * gridSize;
+            
+            // 根据道路等级设置样式
+            let lineWidth = 2;
+            let color = '#8b7355';
+            let dashPattern = [];
+            
+            switch (road.level) {
+                case 3: // 官道
+                    lineWidth = 4 * this.zoom;
+                    color = '#d4af37';
+                    break;
+                case 2: // 驿道
+                    lineWidth = 3 * this.zoom;
+                    color = '#b8956a';
+                    break;
+                case 1: // 小路
+                default:
+                    lineWidth = 2 * this.zoom;
+                    color = '#8b7355';
+                    dashPattern = [5, 5];
+                    break;
+            }
+            
+            // 绘制道路
+            this.ctx.beginPath();
+            this.ctx.moveTo(fromX, fromY);
+            this.ctx.lineTo(toX, toY);
+            this.ctx.strokeStyle = color;
+            this.ctx.lineWidth = lineWidth;
+            this.ctx.setLineDash(dashPattern);
+            this.ctx.globalAlpha = 0.6;
+            this.ctx.stroke();
+            this.ctx.setLineDash([]);
+            this.ctx.globalAlpha = 1.0;
         }
     }
 
@@ -262,6 +374,72 @@ export class MapRenderer {
             this.ctx.font = `${12 * this.zoom}px Microsoft YaHei`;
             this.ctx.textAlign = 'center';
             this.ctx.fillText(city.name, x, y - 15 * this.zoom);
+        }
+    }
+
+    /**
+     * 绘制军队
+     */
+    renderArmies(state) {
+        if (!state.armies) return;
+        
+        const gridSize = state.mapData.gridSize * this.zoom;
+        
+        for (const armyId in state.armies) {
+            const army = state.armies[armyId];
+            const x = this.offsetX + army.x * gridSize;
+            const y = this.offsetY + army.y * gridSize;
+            
+            // 获取势力颜色
+            let color = '#888888';
+            if (state.factions[army.faction]) {
+                color = state.factions[army.faction].color;
+            }
+            
+            // 绘制军队旗帜（三角形）
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, y - 6 * this.zoom);
+            this.ctx.lineTo(x - 5 * this.zoom, y + 4 * this.zoom);
+            this.ctx.lineTo(x + 5 * this.zoom, y + 4 * this.zoom);
+            this.ctx.closePath();
+            this.ctx.fillStyle = color;
+            this.ctx.fill();
+            this.ctx.strokeStyle = '#e8dcc4';
+            this.ctx.lineWidth = 1;
+            this.ctx.stroke();
+            
+            // 如果被选中，绘制高亮
+            if (this.selectedArmy === armyId) {
+                this.ctx.beginPath();
+                this.ctx.arc(x, y, 12 * this.zoom, 0, Math.PI * 2);
+                this.ctx.strokeStyle = '#d4af37';
+                this.ctx.lineWidth = 3;
+                this.ctx.stroke();
+            }
+            
+            // 绘制武将名字
+            const general = state.generals[army.general];
+            if (general) {
+                this.ctx.fillStyle = '#e8dcc4';
+                this.ctx.font = `${10 * this.zoom}px Microsoft YaHei`;
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText(general.name, x, y + 15 * this.zoom);
+            }
+            
+            // 如果在移动，绘制路径
+            if (army.mission === 'moving' && army.destination) {
+                const destX = this.offsetX + army.destination.x * gridSize;
+                const destY = this.offsetY + army.destination.y * gridSize;
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, y);
+                this.ctx.lineTo(destX, destY);
+                this.ctx.strokeStyle = 'rgba(212, 175, 55, 0.5)';
+                this.ctx.lineWidth = 2;
+                this.ctx.setLineDash([5, 5]);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+            }
         }
     }
 

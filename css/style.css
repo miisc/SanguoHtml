@@ -328,3 +328,57 @@ button:disabled {
         left: 5%;
     }
 }
+
+/* 军事面板样式 */
+.military-panel {
+    padding: 10px;
+}
+
+.army-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.army-item {
+    padding: 10px;
+    background-color: rgba(58, 47, 31, 0.6);
+    border: 1px solid #8b7355;
+    border-radius: 5px;
+}
+
+.recruit-section {
+    margin-top: 20px;
+}
+
+.recruit-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.recruit-form label {
+    color: #d4af37;
+    font-weight: bold;
+    margin-top: 10px;
+}
+
+.recruit-form select,
+.recruit-form input {
+    padding: 8px;
+    background-color: rgba(58, 47, 31, 0.6);
+    border: 1px solid #8b7355;
+    border-radius: 4px;
+    color: #e8dcc4;
+    font-size: 14px;
+}
+
+.cost-info {
+    padding: 10px;
+    background-color: rgba(139, 115, 85, 0.2);
+    border-left: 3px solid #d4af37;
+    margin: 10px 0;
+}

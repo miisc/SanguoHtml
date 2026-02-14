@@ -35,7 +35,7 @@ export class UIManager {
         });
 
         document.getElementById('btn-military').addEventListener('click', () => {
-            this.showMessage('军事系统', '军事功能开发中...');
+            this.showMilitaryPanel();
         });
 
         document.getElementById('btn-internal').addEventListener('click', () => {
@@ -78,6 +78,11 @@ export class UIManager {
         window.addEventListener('cityDeselected', () => {
             this.hidePanel();
         });
+        
+        // 监听军队选中事件
+        window.addEventListener('armySelected', (e) => {
+            this.showArmyInfo(e.detail.armyId);
+        });
 
         // 监听游戏状态变化
         this.gameState.addListener((event, state, data) => {
@@ -90,6 +95,24 @@ export class UIManager {
             if (event === 'buildingCompleted' && data) {
                 const city = this.gameState.getCity(data.cityId);
                 this.showMessage('建筑完成', `${city.name} 的 ${data.building.name} Lv.${data.building.level} 已建造完成！`);
+            }
+            
+            // 城池被占领
+            if (event === 'cityConquered' && data) {
+                const city = state.cities[data.cityId];
+                const newOwnerFaction = state.factions[data.newOwner];
+                this.showMessage('城池占领', `${newOwnerFaction.name} 占领了 ${city.name}！损失${data.casualties}士兵`);
+            }
+            
+            // 攻城失败
+            if (event === 'siegeFailed' && data) {
+                const city = state.cities[data.cityId];
+                this.showMessage('攻城失败', `攻打 ${city.name} 失败，损失${data.casualties}士兵`);
+            }
+            
+            // 战斗完成
+            if (event === 'battleCompleted' && data) {
+                this.showMessage('战斗结束', '野战结束！');
             }
         });
     }
@@ -548,6 +571,214 @@ export class UIManager {
             }
         } catch (e) {
             this.showMessage('加载失败', '加载游戏时出错：' + e.message);
+        }
+    }
+
+    /**
+     * 显示军事面板
+     */
+    showMilitaryPanel() {
+        this.showPanel();
+        this.panelTitle.textContent = '军事';
+        
+        const state = this.gameState.getState();
+        const playerFaction = this.gameState.getPlayerFaction();
+        
+        let html = '<div class="military-panel">';
+        
+        // 显示所有军队
+        html += '<h3>我的军队</h3>';
+        html += '<div class="army-list">';
+        
+        const armies = Object.values(state.armies || {}).filter(a => a.faction === playerFaction.id);
+        
+        if (armies.length === 0) {
+            html += '<p>暂无军队</p>';
+        } else {
+            for (const army of armies) {
+                const general = state.generals[army.general];
+                html += `
+                    <div class="army-item">
+                        <div><strong>${general.name}</strong> 的军队</div>
+                        <div>兵力: ${army.troops}</div>
+                        <div>士气: ${army.morale}</div>
+                        <div>状态: ${army.mission === 'idle' ? '待命' : '行军中'}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        html += '</div>';
+        
+        // 招募新军队
+        html += '<h3>招募军队</h3>';
+        html += '<div class="recruit-section">';
+        
+        // 显示玩家城池
+        const playerCities = playerFaction.cities.map(cid => state.cities[cid]);
+        
+        if (playerCities.length === 0) {
+            html += '<p>你没有城池</p>';
+        } else {
+            html += '<div class="recruit-form">';
+            html += '<label>选择城池:</label>';
+            html += '<select id="recruit-city">';
+            for (const city of playerCities) {
+                html += `<option value="${city.id}">${city.name}</option>`;
+            }
+            html += '</select>';
+            
+            html += '<label>选择武将:</label>';
+            html += '<select id="recruit-general">';
+            
+            // 显示空闲武将
+            const availableGenerals = playerFaction.generals
+                .map(gid => state.generals[gid])
+                .filter(g => {
+                    // 检查是否已经带队
+                    const hasArmy = armies.some(a => a.general === g.id);
+                    return !hasArmy && g.position !== 'ruler' && g.position !== 'governor';
+                });
+            
+            if (availableGenerals.length === 0) {
+                html += '<option value="">无空闲武将</option>';
+            } else {
+                for (const general of availableGenerals) {
+                    html += `<option value="${general.id}">${general.name} (统率:${general.attributes.command})</option>`;
+                }
+            }
+            
+            html += '</select>';
+            
+            html += '<label>士兵数量:</label>';
+            html += '<input type="number" id="recruit-troops" value="100" min="10" max="10000" step="10">';
+            
+            const costPerTroop = 50;
+            const estimatedCost = 100 * costPerTroop;
+            html += `<div class="cost-info">每士兵消耗: 50金 + 20粮<br>预计成本: <span id="recruit-cost">${estimatedCost}金 + ${100 * 20}粮</span></div>`;
+            
+            html += '<button id="btn-recruit" class="action-btn">招募</button>';
+            html += '</div>';
+        }
+        
+        html += '</div>';
+        html += '</div>';
+        
+        this.panelContent.innerHTML = html;
+        
+        // 绑定事件
+        const troopsInput = document.getElementById('recruit-troops');
+        if (troopsInput) {
+            troopsInput.addEventListener('input', () => {
+                const troops = parseInt(troopsInput.value) || 0;
+                const cost = troops * 50;
+                const food = troops * 20;
+                document.getElementById('recruit-cost').textContent = `${cost}金 + ${food}粮`;
+            });
+        }
+        
+        const recruitBtn = document.getElementById('btn-recruit');
+        if (recruitBtn) {
+            recruitBtn.addEventListener('click', () => {
+                this.recruitArmy();
+            });
+        }
+    }
+    
+    /**
+     * 招募军队
+     */
+    recruitArmy() {
+        const cityId = document.getElementById('recruit-city').value;
+        const generalId = document.getElementById('recruit-general').value;
+        const troops = parseInt(document.getElementById('recruit-troops').value) || 0;
+        
+        if (!generalId) {
+            this.showMessage('招募失败', '请选择武将');
+            return;
+        }
+        
+        if (troops < 10) {
+            this.showMessage('招募失败', '至少招募10名士兵');
+            return;
+        }
+        
+        const result = this.gameState.recruitArmy(cityId, generalId, troops);
+        
+        if (result.success) {
+            this.showMessage('招募成功', result.message);
+            // 刷新军事面板
+            this.showMilitaryPanel();
+        } else {
+            this.showMessage('招募失败', result.message);
+        }
+    }
+    
+    /**
+     * 显示军队信息
+     */
+    showArmyInfo(armyId) {
+        this.showPanel();
+        this.panelTitle.textContent = '军队详情';
+        
+        const state = this.gameState.getState();
+        const army = state.armies[armyId];
+        
+        if (!army) {
+            this.panelContent.innerHTML = '<p>军队不存在</p>';
+            return;
+        }
+        
+        const general = state.generals[army.general];
+        const faction = state.factions[army.faction];
+        
+        let html = '<div class="army-detail">';
+        
+        html += '<h3>军队信息</h3>';
+        html += `<div class="info-item"><span class="info-label">统帅:</span> ${general.name}</div>`;
+        html += `<div class="info-item"><span class="info-label">势力:</span> <span style="color:${faction.color}">${faction.name}</span></div>`;
+        html += `<div class="info-item"><span class="info-label">兵力:</span> ${army.troops}</div>`;
+        html += `<div class="info-item"><span class="info-label">士气:</span> ${army.morale}</div>`;
+        html += `<div class="info-item"><span class="info-label">状态:</span> ${army.mission === 'idle' ? '待命' : army.mission === 'moving' ? '行军中' : '其他'}</div>`;
+        html += `<div class="info-item"><span class="info-label">位置:</span> (${army.x.toFixed(1)}, ${army.y.toFixed(1)})</div>`;
+        
+        if (army.destination) {
+            html += `<div class="info-item"><span class="info-label">目标:</span> (${army.destination.x.toFixed(1)}, ${army.destination.y.toFixed(1)})</div>`;
+        }
+        
+        // 如果是玩家的军队，显示操作按钮
+        const playerFaction = this.gameState.getPlayerFaction();
+        if (army.faction === playerFaction.id) {
+            html += '<h3>操作</h3>';
+            html += '<p style="color: #d4af37;">点击地图上的目标位置移动军队</p>';
+            
+            // 解散军队按钮
+            html += `<button class="action-btn" onclick="window.uiManager.disbandArmy('${armyId}')">解散军队</button>`;
+        }
+        
+        html += '</div>';
+        
+        this.panelContent.innerHTML = html;
+    }
+    
+    /**
+     * 解散军队
+     */
+    disbandArmy(armyId) {
+        const state = this.gameState.getState();
+        const army = state.armies[armyId];
+        
+        if (!army) {
+            this.showMessage('解散失败', '军队不存在');
+            return;
+        }
+        
+        const general = state.generals[army.general];
+        
+        if (confirm(`确定要解散 ${general.name} 带领的军队吗？`)) {
+            delete state.armies[armyId];
+            this.showMessage('军队解散', `${general.name} 的军队已解散`);
+            this.hidePanel();
         }
     }
 

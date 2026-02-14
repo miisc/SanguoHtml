@@ -8,8 +8,10 @@ import {
     createCity, 
     createGeneral, 
     createFaction,
+    createRoad,
     INITIAL_CITIES,
     INITIAL_GENERALS,
+    INITIAL_ROADS,
     FACTION_CONFIG,
     SEASONS
 } from './structures.js';
@@ -22,6 +24,17 @@ import {
     calculateCityBuildingEffects
 } from './buildings.js';
 
+import {
+    createArmy,
+    calculatePath,
+    updateArmyPosition,
+    checkArrival,
+    simulateBattle,
+    calculateArmyPower
+} from './military.js';
+
+import { AISystem } from '../ai/aiSystem.js';
+
 class GameStateManager {
     constructor() {
         this.state = null;
@@ -29,6 +42,8 @@ class GameStateManager {
         this.lastUpdateTime = Date.now();
         this.gameSpeed = 1; // 1=正常, 2=2倍速, 4=4倍速, 0=暂停
         this.daysPassed = 0;
+        this.aiSystem = null;
+        this.armyIdCounter = 1;
     }
 
     /**
@@ -73,6 +88,13 @@ class GameStateManager {
                 this.state.factions[city.owner].cities.push(city.id);
             }
         }
+        
+        // 初始化道路
+        this.state.roads = {};
+        for (const roadData of INITIAL_ROADS) {
+            const road = createRoad(roadData.id, roadData.from, roadData.to, roadData.level);
+            this.state.roads[road.id] = road;
+        }
 
         // 设置武将位置（君主在首都）
         if (this.state.factions.shu.cities.length > 0) {
@@ -90,6 +112,10 @@ class GameStateManager {
 
         console.log('游戏状态初始化完成', this.state);
         this.lastUpdateTime = Date.now();
+        
+        // 初始化AI系统
+        this.aiSystem = new AISystem(this);
+        
         this.notifyListeners('initialized');
     }
 
@@ -146,6 +172,9 @@ class GameStateManager {
             
             this.advanceDays(daysToAdvance);
         }
+        
+        // 更新军队移动
+        this.updateArmies(deltaTime);
     }
     
     /**
@@ -172,6 +201,11 @@ class GameStateManager {
             
             // 每天更新资源（按天计算）
             this.updateDailyResources();
+            
+            // 更新AI
+            if (this.aiSystem) {
+                this.aiSystem.update(this.state.currentTurn);
+            }
         }
         
         this.notifyListeners('timeChanged');
@@ -319,6 +353,276 @@ class GameStateManager {
             building,
             buildTime: check.cost.time
         };
+    }
+    
+    /**
+     * 招募军队
+     */
+    recruitArmy(cityId, generalId, troops) {
+        const city = this.getCity(cityId);
+        const general = this.getGeneral(generalId);
+        const playerFaction = this.getPlayerFaction();
+        
+        if (!city || city.owner !== playerFaction.id) {
+            return { success: false, message: '城池不存在或不属于你' };
+        }
+        
+        if (!general || general.faction !== playerFaction.id) {
+            return { success: false, message: '武将不存在或不属于你' };
+        }
+        
+        // 检查武将是否已经在带队
+        const existingArmy = Object.values(this.state.armies || {}).find(a => a.general === generalId);
+        if (existingArmy) {
+            return { success: false, message: '该武将已经在带领一支军队' };
+        }
+        
+        // 计算成本
+        const cost = {
+            gold: troops * 50,
+            food: troops * 20
+        };
+        
+        if (playerFaction.resources.gold < cost.gold || playerFaction.resources.food < cost.food) {
+            return { success: false, message: '资源不足' };
+        }
+        
+        // 扣除资源
+        playerFaction.resources.gold -= cost.gold;
+        playerFaction.resources.food -= cost.food;
+        
+        // 创建军队
+        const armyId = 'army' + this.armyIdCounter++;
+        const army = createArmy(armyId, playerFaction.id, cityId, troops, generalId);
+        
+        if (!this.state.armies) {
+            this.state.armies = {};
+        }
+        this.state.armies[armyId] = army;
+        
+        console.log(`招募军队成功: ${general.name} 带领 ${troops} 士兵`);
+        this.notifyListeners('armyRecruited', { armyId, army });
+        
+        return { success: true, message: `成功招募 ${troops} 士兵`, army };
+    }
+    
+    /**
+     * 更新所有军队
+     */
+    updateArmies(deltaTime) {
+        if (!this.state.armies) return;
+        
+        for (const armyId in this.state.armies) {
+            const army = this.state.armies[armyId];
+            
+            if (army.mission === 'moving' && army.destination) {
+                // 更新军队位置
+                updateArmyPosition(army, deltaTime);
+                
+                // 检查是否到达目的地
+                const arrived = checkArrival(army);
+                
+                if (arrived) {
+                    console.log(`军队 ${armyId} 到达目的地`);
+                    army.mission = 'idle';
+                    
+                    // 检查是否有敌军或敌对城池
+                    this.checkBattle(army);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 检查并处理战斗
+     */
+    checkBattle(army) {
+        const state = this.state;
+        
+        // 检查目的地是否有敌对城池
+        const targetCity = Object.values(state.cities).find(c => 
+            c.owner !== army.faction && 
+            Math.abs(c.position.x - army.x) < 0.5 && 
+            Math.abs(c.position.y - army.y) < 0.5
+        );
+        
+        if (targetCity) {
+            console.log(`军队到达敌对城池: ${targetCity.name}，开始攻城`);
+            this.siegeCity(army, targetCity);
+            return;
+        }
+        
+        // 检查是否有敌对军队
+        const enemyArmies = Object.values(state.armies || {}).filter(a => 
+            a.faction !== army.faction &&
+            Math.abs(a.x - army.x) < 0.5 && 
+            Math.abs(a.y - army.y) < 0.5
+        );
+        
+        if (enemyArmies.length > 0) {
+            console.log(`遭遇敌军，开始战斗`);
+            this.fieldBattle(army, enemyArmies[0]);
+        }
+    }
+    
+    /**
+     * 攻城战
+     */
+    siegeCity(attackArmy, targetCity) {
+        const state = this.state;
+        const attackGeneral = state.generals[attackArmy.general];
+        const defender = targetCity.governor ? state.generals[targetCity.governor] : null;
+        
+        console.log(`攻城战: ${attackGeneral.name} 率军攻打 ${targetCity.name}`);
+        
+        // 计算城防（城墙等级影响）
+        const wall = targetCity.buildings.find(b => b.type === 'wall');
+        const wallBonus = wall ? wall.level * 20 : 0;
+        
+        // 计算守军力量（假设城池有一定的守军）
+        const garrisonTroops = Math.max(50, targetCity.population * 0.1);
+        const defenseBonus = wallBonus + (defender ? defender.attributes.command * 5 : 0);
+        const defensePower = garrisonTroops * 8 + defenseBonus;
+        
+        // 计算攻击力
+        const attackPower = calculateArmyPower(attackArmy, attackGeneral);
+        
+        console.log(`攻城力量: ${attackPower}, 防御力量: ${defensePower}`);
+        
+        // 攻城需要攻击力是防御力的1.5倍才能成功
+        if (attackPower >= defensePower * 1.5) {
+            // 攻城成功
+            const casualties = Math.floor(attackArmy.troops * 0.3); // 攻城损失30%
+            attackArmy.troops -= casualties;
+            attackArmy.morale = Math.max(50, attackArmy.morale - 20);
+            
+            if (attackArmy.troops <= 0) {
+                // 军队全灭
+                console.log(`攻城成功但军队全灭`);
+                delete state.armies[attackArmy.id];
+                return;
+            }
+            
+            // 占领城池
+            const oldOwner = targetCity.owner;
+            targetCity.owner = attackArmy.faction;
+            
+            // 更新势力城池列表
+            if (oldOwner && state.factions[oldOwner]) {
+                const index = state.factions[oldOwner].cities.indexOf(targetCity.id);
+                if (index > -1) {
+                    state.factions[oldOwner].cities.splice(index, 1);
+                }
+            }
+            
+            if (state.factions[attackArmy.faction]) {
+                state.factions[attackArmy.faction].cities.push(targetCity.id);
+            }
+            
+            // 清除原太守
+            if (targetCity.governor) {
+                const oldGovernor = state.generals[targetCity.governor];
+                if (oldGovernor) {
+                    oldGovernor.position = 'none';
+                    oldGovernor.location = null;
+                }
+                targetCity.governor = null;
+            }
+            
+            console.log(`${attackGeneral.name} 攻占了 ${targetCity.name}! 损失${casualties}士兵`);
+            
+            this.notifyListeners('cityConquered', { 
+                cityId: targetCity.id, 
+                newOwner: attackArmy.faction,
+                oldOwner: oldOwner,
+                casualties: casualties
+            });
+        } else {
+            // 攻城失败
+            const casualties = Math.floor(attackArmy.troops * 0.5); // 失败损失50%
+            attackArmy.troops -= casualties;
+            attackArmy.morale = Math.max(30, attackArmy.morale - 30);
+            
+            if (attackArmy.troops <= 0) {
+                console.log(`攻城失败，军队全灭`);
+                delete state.armies[attackArmy.id];
+            } else {
+                console.log(`攻城失败，损失${casualties}士兵，撤退`);
+                // 撤退到附近位置
+                attackArmy.x += (Math.random() - 0.5) * 2;
+                attackArmy.y += (Math.random() - 0.5) * 2;
+                attackArmy.mission = 'idle';
+            }
+            
+            this.notifyListeners('siegeFailed', { 
+                cityId: targetCity.id, 
+                attackerFaction: attackArmy.faction,
+                casualties: casualties
+            });
+        }
+    }
+    
+    /**
+     * 野战
+     */
+    fieldBattle(army1, army2) {
+        const state = this.state;
+        const general1 = state.generals[army1.general];
+        const general2 = state.generals[army2.general];
+        
+        console.log(`野战: ${general1.name} vs ${general2.name}`);
+        
+        // 使用 simulateBattle 进行战斗
+        const result = simulateBattle(army1, general1, army2, general2);
+        
+        army1.troops = result.army1Remaining;
+        army2.troops = result.army2Remaining;
+        
+        army1.morale = Math.max(30, army1.morale - 15);
+        army2.morale = Math.max(30, army2.morale - 15);
+        
+        // 检查是否有军队被消灭
+        if (army1.troops <= 0) {
+            console.log(`${general1.name} 的军队被消灭`);
+            delete state.armies[army1.id];
+        }
+        
+        if (army2.troops <= 0) {
+            console.log(`${general2.name} 的军队被消灭`);
+            delete state.armies[army2.id];
+        }
+        
+        this.notifyListeners('battleCompleted', { 
+            army1: army1.id, 
+            army2: army2.id, 
+            result: result 
+        });
+    }
+    
+    /**
+     * 移动军队
+     */
+    moveArmy(armyId, targetX, targetY) {
+        const army = this.state.armies[armyId];
+        if (!army) {
+            return { success: false, message: '军队不存在' };
+        }
+        
+        const playerFaction = this.getPlayerFaction();
+        if (army.faction !== playerFaction.id) {
+            return { success: false, message: '这不是你的军队' };
+        }
+        
+        // 计算路径
+        const path = calculatePath({ x: army.x, y: army.y }, { x: targetX, y: targetY });
+        army.path = path;
+        army.destination = { x: targetX, y: targetY };
+        army.mission = 'moving';
+        
+        console.log(`军队 ${armyId} 开始移动到 (${targetX}, ${targetY})`);
+        this.notifyListeners('armyMoved', { armyId, army });
+        
+        return { success: true, message: '军队开始移动' };
     }
     
     /**
