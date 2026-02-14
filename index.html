@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三国志策略游戏</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- 顶部信息栏 -->
+    <header id="game-header">
+        <div class="header-left">
+            <h1>三国志</h1>
+            <div class="game-info">
+                <span id="current-date">公元189年 春季</span>
+                <span id="player-faction">势力：蜀</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="resource-info">
+                <span class="resource">
+                    <span class="resource-icon">💰</span>
+                    <span id="gold">1000</span>
+                </span>
+                <span class="resource">
+                    <span class="resource-icon">🌾</span>
+                    <span id="food">1000</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- 地图容器 -->
+    <main id="game-container">
+        <canvas id="game-map"></canvas>
+        
+        <!-- 地图控制按钮 -->
+        <div id="map-controls">
+            <button id="zoom-in" title="放大">+</button>
+            <button id="zoom-out" title="缩小">-</button>
+            <button id="reset-view" title="重置视图">⌂</button>
+        </div>
+
+        <!-- 信息面板 -->
+        <div id="info-panel" class="panel hidden">
+            <div class="panel-header">
+                <h3 id="panel-title">信息</h3>
+                <button class="close-btn">×</button>
+            </div>
+            <div class="panel-content" id="panel-content">
+                <!-- 动态内容 -->
+            </div>
+        </div>
+    </main>
+
+    <!-- 底部控制栏 -->
+    <footer id="game-footer">
+        <div class="control-buttons">
+            <button id="btn-cities">城池</button>
+            <button id="btn-generals">武将</button>
+            <button id="btn-military">军事</button>
+            <button id="btn-internal">内政</button>
+            <button id="btn-diplomacy">外交</button>
+        </div>
+        <div class="game-controls">
+            <button id="btn-save">保存</button>
+            <button id="btn-load">加载</button>
+            <button id="btn-next-turn" class="primary">下一回合</button>
+        </div>
+    </footer>
+
+    <!-- 加载提示 -->
+    <div id="loading" class="hidden">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <p>加载中...</p>
+        </div>
+    </div>
+
+    <!-- JavaScript模块 -->
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
